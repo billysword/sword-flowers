@@ -1,0 +1,17 @@
+# binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+server
+
+# env
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
