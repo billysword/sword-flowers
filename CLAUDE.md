@@ -123,4 +123,4 @@ propose a new ADR.
 
 - **Deploy:** `gcloud run deploy --source .` (or via Dockerfile)
 - **Local dev:** _TBD — fill in at CP0_
-- **Migrate:** _TBD — fill in at CP1_
+- **Migrate:** `migrate -database "$DATABASE_URL" -path migrations up`
