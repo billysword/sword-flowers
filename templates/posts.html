@@ -1,0 +1,10 @@
+{{define "content"}}
+<h1>Posts</h1>
+<ul>
+  {{range .Posts}}
+  <li><a href="/posts/{{.Slug}}">{{.Subject}}</a></li>
+  {{else}}
+  <li>No posts yet.</li>
+  {{end}}
+</ul>
+{{end}}
