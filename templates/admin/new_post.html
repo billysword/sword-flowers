@@ -1,0 +1,21 @@
+{{define "content"}}
+<h1>New Post</h1>
+<form method="POST" action="/admin/posts">
+  <div class="field">
+    <label for="subject">Subject</label>
+    <input type="text" id="subject" name="subject" required autofocus>
+  </div>
+  <div class="field">
+    <label for="body">Body</label>
+    <textarea id="body" name="body" rows="16" required></textarea>
+  </div>
+  <div class="field">
+    <fieldset>
+      <legend>Status</legend>
+      <label><input type="radio" name="status" value="draft" checked> Draft</label>
+      <label><input type="radio" name="status" value="published"> Published</label>
+    </fieldset>
+  </div>
+  <button type="submit">Save post</button>
+</form>
+{{end}}

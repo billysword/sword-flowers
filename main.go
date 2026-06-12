@@ -3,20 +3,25 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/billysword/sword-flowers/db"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/yuin/goldmark"
 )
 
 type templates struct {
-	list   *template.Template
-	detail *template.Template
+	list    *template.Template
+	detail  *template.Template
+	newPost *template.Template
 }
 
 func loadTemplates() (*templates, error) {
@@ -28,7 +33,11 @@ func loadTemplates() (*templates, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &templates{list: list, detail: detail}, nil
+	newPost, err := template.ParseFiles("templates/base.html", "templates/admin/new_post.html")
+	if err != nil {
+		return nil, err
+	}
+	return &templates{list: list, detail: detail, newPost: newPost}, nil
 }
 
 func main() {
@@ -61,6 +70,8 @@ func main() {
 	})
 	http.HandleFunc("/posts", listPostsHandler(pool, tmpl))
 	http.HandleFunc("/posts/{slug}", getPostHandler(pool, tmpl))
+	http.HandleFunc("/admin/posts/new", newPostFormHandler(tmpl))
+	http.HandleFunc("/admin/posts", createPostHandler(pool))
 
 	log.Printf("listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
@@ -129,6 +140,79 @@ func getPostHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
 			log.Printf("get post render: %v", err)
 		}
 	}
+}
+
+func newPostFormHandler(tmpl *templates) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := tmpl.newPost.ExecuteTemplate(w, "base", nil); err != nil {
+			log.Printf("new post form render: %v", err)
+		}
+	}
+}
+
+func createPostHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+
+		subject := strings.TrimSpace(r.FormValue("subject"))
+		body := strings.TrimSpace(r.FormValue("body"))
+		status := r.FormValue("status")
+
+		if subject == "" || body == "" {
+			http.Error(w, "subject and body are required", http.StatusBadRequest)
+			return
+		}
+		if status != "draft" && status != "published" {
+			status = "draft"
+		}
+
+		slug, err := insertPost(r.Context(), pool, subject, body, status)
+		if err != nil {
+			http.Error(w, "could not save post", http.StatusInternalServerError)
+			log.Printf("create post: %v", err)
+			return
+		}
+
+		http.Redirect(w, r, "/posts/"+slug, http.StatusSeeOther)
+	}
+}
+
+// insertPost inserts a new post and returns its slug. On unique slug collision
+// it retries with a numeric suffix (-2, -3, ...).
+func insertPost(ctx context.Context, pool *pgxpool.Pool, subject, body, status string) (string, error) {
+	base := slugify(subject)
+	slug := base
+	for i := 2; i <= 100; i++ {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO posts (slug, subject, body, status) VALUES ($1, $2, $3, $4)`,
+			slug, subject, body, status)
+		if err == nil {
+			return slug, nil
+		}
+		// retry only on unique constraint violation
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			slug = fmt.Sprintf("%s-%d", base, i)
+			continue
+		}
+		return "", err
+	}
+	return "", fmt.Errorf("could not generate unique slug for %q", subject)
+}
+
+var (
+	nonAlphanumeric = regexp.MustCompile(`[^a-z0-9]+`)
+	leadingTrailing = regexp.MustCompile(`^-|-$`)
+)
+
+func slugify(s string) string {
+	s = strings.ToLower(s)
+	s = nonAlphanumeric.ReplaceAllString(s, "-")
+	s = leadingTrailing.ReplaceAllString(s, "")
+	return s
 }
 
 func renderMarkdown(src string) (template.HTML, error) {
