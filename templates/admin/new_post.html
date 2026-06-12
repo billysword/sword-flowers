@@ -1,6 +1,6 @@
 {{define "content"}}
 <h1>New Post</h1>
-<form method="POST" action="/admin/posts">
+<form method="POST" action="/admin/posts" enctype="multipart/form-data">
   <div class="field">
     <label for="subject">Subject</label>
     <input type="text" id="subject" name="subject" required autofocus>
@@ -8,6 +8,10 @@
   <div class="field">
     <label for="body">Body</label>
     <textarea id="body" name="body" rows="16" required></textarea>
+  </div>
+  <div class="field">
+    <label for="image">Image (optional)</label>
+    <input type="file" id="image" name="image" accept="image/*">
   </div>
   <div class="field">
     <fieldset>

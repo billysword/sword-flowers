@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
+	"cloud.google.com/go/storage"
 	"github.com/billysword/sword-flowers/db"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,12 +51,24 @@ func main() {
 		log.Fatal("DATABASE_URL is required")
 	}
 
+	bucketName := os.Getenv("BUCKET_NAME")
+	if bucketName == "" {
+		log.Fatal("BUCKET_NAME is required")
+	}
+
 	pool, err := db.Connect(ctx, databaseURL)
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
 	}
 	defer pool.Close()
 	log.Println("database connected")
+
+	gcsClient, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("create GCS client: %v", err)
+	}
+	defer gcsClient.Close()
+	log.Println("GCS client ready")
 
 	tmpl, err := loadTemplates()
 	if err != nil {
@@ -71,7 +86,7 @@ func main() {
 	http.HandleFunc("/posts", listPostsHandler(pool, tmpl))
 	http.HandleFunc("/posts/{slug}", getPostHandler(pool, tmpl))
 	http.HandleFunc("/admin/posts/new", newPostFormHandler(tmpl))
-	http.HandleFunc("/admin/posts", createPostHandler(pool))
+	http.HandleFunc("/admin/posts", createPostHandler(pool, gcsClient, bucketName))
 
 	log.Printf("listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
@@ -116,9 +131,10 @@ func getPostHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
 		slug := r.PathValue("slug")
 
 		var subject, body string
+		var imageRef *string
 		err := pool.QueryRow(r.Context(),
-			`SELECT subject, body FROM posts WHERE slug = $1 AND status = 'published'`,
-			slug).Scan(&subject, &body)
+			`SELECT subject, body, image_ref FROM posts WHERE slug = $1 AND status = 'published'`,
+			slug).Scan(&subject, &body, &imageRef)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -132,9 +148,14 @@ func getPostHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
 		}
 
 		data := struct {
-			Subject string
-			Body    template.HTML
-		}{Subject: subject, Body: rendered}
+			Subject  string
+			Body     template.HTML
+			ImageRef string
+		}{
+			Subject:  subject,
+			Body:     rendered,
+			ImageRef: strVal(imageRef),
+		}
 
 		if err := tmpl.detail.ExecuteTemplate(w, "base", data); err != nil {
 			log.Printf("get post render: %v", err)
@@ -150,10 +171,15 @@ func newPostFormHandler(tmpl *templates) http.HandlerFunc {
 	}
 }
 
-func createPostHandler(pool *pgxpool.Pool) http.HandlerFunc {
+func createPostHandler(pool *pgxpool.Pool, gcsClient *storage.Client, bucketName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.NotFound(w, r)
+			return
+		}
+
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			http.Error(w, "could not parse form", http.StatusBadRequest)
 			return
 		}
 
@@ -169,7 +195,21 @@ func createPostHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			status = "draft"
 		}
 
-		slug, err := insertPost(r.Context(), pool, subject, body, status)
+		var imageRef string
+		file, header, err := r.FormFile("image")
+		if err == nil {
+			defer file.Close()
+			slug := slugify(subject)
+			ext := filepath.Ext(header.Filename)
+			imageRef, err = uploadImage(r.Context(), gcsClient, bucketName, slug, ext, file)
+			if err != nil {
+				http.Error(w, "image upload failed", http.StatusInternalServerError)
+				log.Printf("upload image: %v", err)
+				return
+			}
+		}
+
+		slug, err := insertPost(r.Context(), pool, subject, body, status, imageRef)
 		if err != nil {
 			http.Error(w, "could not save post", http.StatusInternalServerError)
 			log.Printf("create post: %v", err)
@@ -180,19 +220,35 @@ func createPostHandler(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
+func uploadImage(ctx context.Context, client *storage.Client, bucket, slug, ext string, r io.Reader) (string, error) {
+	object := "posts/" + slug + ext
+	wc := client.Bucket(bucket).Object(object).NewWriter(ctx)
+	if _, err := io.Copy(wc, r); err != nil {
+		wc.Close()
+		return "", fmt.Errorf("write to GCS: %w", err)
+	}
+	if err := wc.Close(); err != nil {
+		return "", fmt.Errorf("close GCS writer: %w", err)
+	}
+	return "https://storage.googleapis.com/" + bucket + "/" + object, nil
+}
+
 // insertPost inserts a new post and returns its slug. On unique slug collision
 // it retries with a numeric suffix (-2, -3, ...).
-func insertPost(ctx context.Context, pool *pgxpool.Pool, subject, body, status string) (string, error) {
+func insertPost(ctx context.Context, pool *pgxpool.Pool, subject, body, status, imageRef string) (string, error) {
 	base := slugify(subject)
 	slug := base
 	for i := 2; i <= 100; i++ {
+		var ref *string
+		if imageRef != "" {
+			ref = &imageRef
+		}
 		_, err := pool.Exec(ctx,
-			`INSERT INTO posts (slug, subject, body, status) VALUES ($1, $2, $3, $4)`,
-			slug, subject, body, status)
+			`INSERT INTO posts (slug, subject, body, status, image_ref) VALUES ($1, $2, $3, $4, $5)`,
+			slug, subject, body, status, ref)
 		if err == nil {
 			return slug, nil
 		}
-		// retry only on unique constraint violation
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			slug = fmt.Sprintf("%s-%d", base, i)
@@ -221,4 +277,11 @@ func renderMarkdown(src string) (template.HTML, error) {
 		return "", err
 	}
 	return template.HTML(buf.String()), nil
+}
+
+func strVal(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
