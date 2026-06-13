@@ -1,0 +1,31 @@
+{{define "content"}}
+<h1>Edit Post</h1>
+<form method="POST" action="/admin/posts/{{.Slug}}" enctype="multipart/form-data">
+  <div class="field">
+    <label for="subject">Subject</label>
+    <input type="text" id="subject" name="subject" value="{{.Subject}}" required autofocus>
+  </div>
+  <div class="field">
+    <label for="body">Body</label>
+    <textarea id="body" name="body" rows="16" required>{{.Body}}</textarea>
+  </div>
+  {{if .ImageRef}}
+  <div class="field">
+    <label>Current image</label>
+    <img src="{{.ImageRef}}" alt="{{.Subject}}" class="preview">
+  </div>
+  {{end}}
+  <div class="field">
+    <label for="image">{{if .ImageRef}}Replace image{{else}}Image (optional){{end}}</label>
+    <input type="file" id="image" name="image" accept="image/*">
+  </div>
+  <div class="field">
+    <fieldset>
+      <legend>Status</legend>
+      <label><input type="radio" name="status" value="draft" {{if eq .Status "draft"}}checked{{end}}> Draft</label>
+      <label><input type="radio" name="status" value="published" {{if eq .Status "published"}}checked{{end}}> Published</label>
+    </fieldset>
+  </div>
+  <button type="submit">Save changes</button>
+</form>
+{{end}}

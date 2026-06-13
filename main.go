@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 	"strings"
 
 	"cloud.google.com/go/storage"
@@ -22,9 +23,11 @@ import (
 )
 
 type templates struct {
-	list    *template.Template
-	detail  *template.Template
-	newPost *template.Template
+	list      *template.Template
+	detail    *template.Template
+	newPost   *template.Template
+	adminList *template.Template
+	editPost  *template.Template
 }
 
 func loadTemplates() (*templates, error) {
@@ -40,7 +43,15 @@ func loadTemplates() (*templates, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &templates{list: list, detail: detail, newPost: newPost}, nil
+	adminList, err := template.ParseFiles("templates/base.html", "templates/admin/posts.html")
+	if err != nil {
+		return nil, err
+	}
+	editPost, err := template.ParseFiles("templates/base.html", "templates/admin/edit_post.html")
+	if err != nil {
+		return nil, err
+	}
+	return &templates{list: list, detail: detail, newPost: newPost, adminList: adminList, editPost: editPost}, nil
 }
 
 func main() {
@@ -85,8 +96,11 @@ func main() {
 	})
 	http.HandleFunc("/posts", listPostsHandler(pool, tmpl))
 	http.HandleFunc("/posts/{slug}", getPostHandler(pool, tmpl))
+	http.HandleFunc("/admin/posts", adminPostsHandler(pool, tmpl, gcsClient, bucketName))
 	http.HandleFunc("/admin/posts/new", newPostFormHandler(tmpl))
-	http.HandleFunc("/admin/posts", createPostHandler(pool, gcsClient, bucketName))
+	http.HandleFunc("/admin/posts/{slug}/edit", editPostFormHandler(pool, tmpl))
+	http.HandleFunc("/admin/posts/{slug}/delete", deletePostHandler(pool))
+	http.HandleFunc("/admin/posts/{slug}", updatePostHandler(pool, gcsClient, bucketName))
 
 	log.Printf("listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
@@ -163,6 +177,160 @@ func getPostHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
 	}
 }
 
+func adminPostsHandler(pool *pgxpool.Pool, tmpl *templates, gcsClient *storage.Client, bucketName string) http.HandlerFunc {
+	getHandler := adminListHandler(pool, tmpl)
+	postHandler := createPostHandler(pool, gcsClient, bucketName)
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			getHandler(w, r)
+		case http.MethodPost:
+			postHandler(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}
+}
+
+func adminListHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := pool.Query(r.Context(),
+			`SELECT slug, subject, status FROM posts ORDER BY created_at DESC`)
+		if err != nil {
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			log.Printf("admin list posts: %v", err)
+			return
+		}
+		defer rows.Close()
+
+		type adminPost struct {
+			Slug    string
+			Subject string
+			Status  string
+		}
+		var posts []adminPost
+		for rows.Next() {
+			var p adminPost
+			if err := rows.Scan(&p.Slug, &p.Subject, &p.Status); err != nil {
+				http.Error(w, "scan failed", http.StatusInternalServerError)
+				log.Printf("admin list scan: %v", err)
+				return
+			}
+			posts = append(posts, p)
+		}
+
+		data := struct{ Posts []adminPost }{Posts: posts}
+		if err := tmpl.adminList.ExecuteTemplate(w, "base", data); err != nil {
+			log.Printf("admin list render: %v", err)
+		}
+	}
+}
+
+func editPostFormHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := r.PathValue("slug")
+
+		var subject, body, status string
+		var imageRef *string
+		err := pool.QueryRow(r.Context(),
+			`SELECT slug, subject, body, status, image_ref FROM posts WHERE slug = $1`,
+			slug).Scan(&slug, &subject, &body, &status, &imageRef)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		data := struct {
+			Slug     string
+			Subject  string
+			Body     string
+			Status   string
+			ImageRef string
+		}{slug, subject, body, status, strVal(imageRef)}
+
+		if err := tmpl.editPost.ExecuteTemplate(w, "base", data); err != nil {
+			log.Printf("edit post form render: %v", err)
+		}
+	}
+}
+
+func updatePostHandler(pool *pgxpool.Pool, gcsClient *storage.Client, bucketName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+
+		slug := r.PathValue("slug")
+
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			http.Error(w, "could not parse form", http.StatusBadRequest)
+			return
+		}
+
+		subject := strings.TrimSpace(r.FormValue("subject"))
+		body := strings.TrimSpace(r.FormValue("body"))
+		status := r.FormValue("status")
+
+		if subject == "" || body == "" {
+			http.Error(w, "subject and body are required", http.StatusBadRequest)
+			return
+		}
+		if status != "draft" && status != "published" {
+			status = "draft"
+		}
+
+		var newImageRef string
+		file, header, err := r.FormFile("image")
+		if err == nil {
+			defer file.Close()
+			ext := filepath.Ext(header.Filename)
+			newImageRef, err = uploadImage(r.Context(), gcsClient, bucketName, slug, ext, file)
+			if err != nil {
+				http.Error(w, "image upload failed", http.StatusInternalServerError)
+				log.Printf("update post upload image: %v", err)
+				return
+			}
+		}
+
+		var q string
+		var args []any
+		if newImageRef != "" {
+			q = `UPDATE posts SET subject=$1, body=$2, status=$3, image_ref=$4, updated_at=now() WHERE slug=$5`
+			args = []any{subject, body, status, newImageRef, slug}
+		} else {
+			q = `UPDATE posts SET subject=$1, body=$2, status=$3, updated_at=now() WHERE slug=$4`
+			args = []any{subject, body, status, slug}
+		}
+
+		if _, err := pool.Exec(r.Context(), q, args...); err != nil {
+			http.Error(w, "could not update post", http.StatusInternalServerError)
+			log.Printf("update post: %v", err)
+			return
+		}
+
+		http.Redirect(w, r, "/admin/posts", http.StatusSeeOther)
+	}
+}
+
+func deletePostHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+
+		slug := r.PathValue("slug")
+		if _, err := pool.Exec(r.Context(), `DELETE FROM posts WHERE slug = $1`, slug); err != nil {
+			http.Error(w, "could not delete post", http.StatusInternalServerError)
+			log.Printf("delete post: %v", err)
+			return
+		}
+
+		http.Redirect(w, r, "/admin/posts", http.StatusSeeOther)
+	}
+}
+
 func newPostFormHandler(tmpl *templates) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := tmpl.newPost.ExecuteTemplate(w, "base", nil); err != nil {
@@ -221,7 +389,7 @@ func createPostHandler(pool *pgxpool.Pool, gcsClient *storage.Client, bucketName
 }
 
 func uploadImage(ctx context.Context, client *storage.Client, bucket, slug, ext string, r io.Reader) (string, error) {
-	object := "posts/" + slug + ext
+	object := fmt.Sprintf("posts/%s-%d%s", slug, time.Now().UnixMilli(), ext)
 	wc := client.Bucket(bucket).Object(object).NewWriter(ctx)
 	if _, err := io.Copy(wc, r); err != nil {
 		wc.Close()
