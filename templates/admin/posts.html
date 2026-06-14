@@ -1,7 +1,10 @@
 {{define "content"}}
 <div class="admin-header">
   <h1>Posts</h1>
-  <a href="/admin/posts/new">New post</a>
+  <div style="display:flex;gap:1rem">
+    <a href="/admin/posts/new">New post</a>
+    <a href="/auth/logout">Logout</a>
+  </div>
 </div>
 <table>
   <thead>

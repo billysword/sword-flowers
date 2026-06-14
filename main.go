@@ -67,6 +67,29 @@ func main() {
 		log.Fatal("BUCKET_NAME is required")
 	}
 
+	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
+	if googleClientID == "" {
+		log.Fatal("GOOGLE_CLIENT_ID is required")
+	}
+	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	if googleClientSecret == "" {
+		log.Fatal("GOOGLE_CLIENT_SECRET is required")
+	}
+	allowedEmails := os.Getenv("ALLOWED_EMAILS")
+	if allowedEmails == "" {
+		log.Fatal("ALLOWED_EMAILS is required")
+	}
+	sessionSecret := os.Getenv("SESSION_SECRET")
+	if sessionSecret == "" {
+		log.Fatal("SESSION_SECRET is required")
+	}
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		log.Fatal("BASE_URL is required")
+	}
+
+	oauthCfg := newOAuthConfig(googleClientID, googleClientSecret, baseURL)
+
 	pool, err := db.Connect(ctx, databaseURL)
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
@@ -91,16 +114,25 @@ func main() {
 		port = "8080"
 	}
 
+	admin := func(h http.HandlerFunc) http.HandlerFunc {
+		return requireAdmin(sessionSecret, h)
+	}
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "sword flowers")
 	})
 	http.HandleFunc("/posts", listPostsHandler(pool, tmpl))
 	http.HandleFunc("/posts/{slug}", getPostHandler(pool, tmpl))
-	http.HandleFunc("/admin/posts", adminPostsHandler(pool, tmpl, gcsClient, bucketName))
-	http.HandleFunc("/admin/posts/new", newPostFormHandler(tmpl))
-	http.HandleFunc("/admin/posts/{slug}/edit", editPostFormHandler(pool, tmpl))
-	http.HandleFunc("/admin/posts/{slug}/delete", deletePostHandler(pool))
-	http.HandleFunc("/admin/posts/{slug}", updatePostHandler(pool, gcsClient, bucketName))
+
+	http.HandleFunc("/auth/login", loginHandler(oauthCfg))
+	http.HandleFunc("/auth/callback", callbackHandler(oauthCfg, sessionSecret, allowedEmails, baseURL))
+	http.HandleFunc("/auth/logout", logoutHandler())
+
+	http.HandleFunc("/admin/posts", admin(adminPostsHandler(pool, tmpl, gcsClient, bucketName)))
+	http.HandleFunc("/admin/posts/new", admin(newPostFormHandler(tmpl)))
+	http.HandleFunc("/admin/posts/{slug}/edit", admin(editPostFormHandler(pool, tmpl)))
+	http.HandleFunc("/admin/posts/{slug}/delete", admin(deletePostHandler(pool)))
+	http.HandleFunc("/admin/posts/{slug}", admin(updatePostHandler(pool, gcsClient, bucketName)))
 
 	log.Printf("listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))

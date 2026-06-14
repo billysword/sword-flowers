@@ -122,5 +122,5 @@ propose a new ADR.
 ## Commands
 
 - **Deploy:** `gcloud run deploy --source .` (or via Dockerfile)
-- **Local dev:** _TBD — fill in at CP0_
+- **Local dev:** `./dev.sh` (loads `.env` then runs `go run .`)
 - **Migrate:** `migrate -database "$DATABASE_URL" -path migrations up`
