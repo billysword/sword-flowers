@@ -159,6 +159,31 @@ article h1 { margin-bottom: var(--space-4); }
   line-height: 1.3;
 }
 
+/* ── Gallery ────────────────────────────────────────────────────────
+   auto-fill + minmax lets the grid reflow from one column on narrow
+   screens to several on wide ones without a media query.
+─────────────────────────────────────────────────────────────────── */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-8);
+}
+
+.gallery img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius);
+}
+
+.gallery figcaption {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+}
+
 /* ── Forms ──────────────────────────────────────────────────────────
    .field wraps a label + input pair. flex-direction: column stacks
    them with a gap rather than using margin.
@@ -241,6 +266,35 @@ button[type="submit"]:hover { background: var(--accent-dark); }
   width: auto;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
+}
+
+/* ── Gallery (admin edit) ───────────────────────────────────────────
+   One row per existing image: thumbnail, editable caption, delete.
+─────────────────────────────────────────────────────────────────── */
+.gallery-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.gallery-edit-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.gallery-edit-item .preview { max-height: 80px; }
+
+.gallery-edit-item input[type="text"] { flex: 1; }
+
+.gallery-edit-item label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--danger);
+  white-space: nowrap;
 }
 
 /* ── Admin chrome ───────────────────────────────────────────────────

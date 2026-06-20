@@ -11,13 +11,31 @@
   </div>
   {{if .ImageRef}}
   <div class="field">
-    <label>Current image</label>
+    <label>Current cover image</label>
     <img src="{{.ImageRef}}" alt="{{.Subject}}" class="preview">
   </div>
   {{end}}
   <div class="field">
-    <label for="image">{{if .ImageRef}}Replace image{{else}}Image (optional){{end}}</label>
+    <label for="image">{{if .ImageRef}}Replace cover image{{else}}Cover image (optional){{end}}</label>
     <input type="file" id="image" name="image" accept="image/*">
+  </div>
+  {{if .Gallery}}
+  <div class="field">
+    <label>Gallery</label>
+    <div class="gallery-edit">
+      {{range .Gallery}}
+      <div class="gallery-edit-item">
+        <img src="{{.ImageRef}}" alt="{{.Caption}}" class="preview">
+        <input type="text" name="caption_{{.ID}}" value="{{.Caption}}" placeholder="Caption (optional)">
+        <label><input type="checkbox" name="delete_image_{{.ID}}" value="1"> Delete</label>
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+  <div class="field">
+    <label for="gallery">Add more photos</label>
+    <input type="file" id="gallery" name="gallery" accept="image/*" multiple>
   </div>
   <div class="field">
     <fieldset>

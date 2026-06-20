@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -180,11 +181,11 @@ func getPostHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := r.PathValue("slug")
 
-		var subject, body string
+		var id, subject, body string
 		var imageRef *string
 		err := pool.QueryRow(r.Context(),
-			`SELECT subject, body, image_ref FROM posts WHERE slug = $1 AND status = 'published'`,
-			slug).Scan(&subject, &body, &imageRef)
+			`SELECT id, subject, body, image_ref FROM posts WHERE slug = $1 AND status = 'published'`,
+			slug).Scan(&id, &subject, &body, &imageRef)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -197,14 +198,23 @@ func getPostHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
 			return
 		}
 
+		gallery, err := getPostImages(r.Context(), pool, id)
+		if err != nil {
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			log.Printf("get post gallery: %v", err)
+			return
+		}
+
 		data := struct {
 			Subject  string
 			Body     template.HTML
 			ImageRef string
+			Gallery  []postImage
 		}{
 			Subject:  subject,
 			Body:     rendered,
 			ImageRef: strVal(imageRef),
+			Gallery:  gallery,
 		}
 
 		if err := tmpl.detail.ExecuteTemplate(w, "base", data); err != nil {
@@ -266,13 +276,20 @@ func editPostFormHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := r.PathValue("slug")
 
-		var subject, body, status string
+		var id, subject, body, status string
 		var imageRef *string
 		err := pool.QueryRow(r.Context(),
-			`SELECT slug, subject, body, status, image_ref FROM posts WHERE slug = $1`,
-			slug).Scan(&slug, &subject, &body, &status, &imageRef)
+			`SELECT id, slug, subject, body, status, image_ref FROM posts WHERE slug = $1`,
+			slug).Scan(&id, &slug, &subject, &body, &status, &imageRef)
 		if err != nil {
 			http.NotFound(w, r)
+			return
+		}
+
+		gallery, err := getPostImages(r.Context(), pool, id)
+		if err != nil {
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			log.Printf("edit post gallery: %v", err)
 			return
 		}
 
@@ -282,7 +299,8 @@ func editPostFormHandler(pool *pgxpool.Pool, tmpl *templates) http.HandlerFunc {
 			Body     string
 			Status   string
 			ImageRef string
-		}{slug, subject, body, status, strVal(imageRef)}
+			Gallery  []postImage
+		}{slug, subject, body, status, strVal(imageRef), gallery}
 
 		if err := tmpl.editPost.ExecuteTemplate(w, "base", data); err != nil {
 			log.Printf("edit post form render: %v", err)
@@ -299,7 +317,7 @@ func updatePostHandler(pool *pgxpool.Pool, gcsClient *storage.Client, bucketName
 
 		slug := r.PathValue("slug")
 
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
+		if err := r.ParseMultipartForm(30 << 20); err != nil {
 			http.Error(w, "could not parse form", http.StatusBadRequest)
 			return
 		}
@@ -332,16 +350,29 @@ func updatePostHandler(pool *pgxpool.Pool, gcsClient *storage.Client, bucketName
 		var q string
 		var args []any
 		if newImageRef != "" {
-			q = `UPDATE posts SET subject=$1, body=$2, status=$3, image_ref=$4, updated_at=now() WHERE slug=$5`
+			q = `UPDATE posts SET subject=$1, body=$2, status=$3, image_ref=$4, updated_at=now() WHERE slug=$5 RETURNING id`
 			args = []any{subject, body, status, newImageRef, slug}
 		} else {
-			q = `UPDATE posts SET subject=$1, body=$2, status=$3, updated_at=now() WHERE slug=$4`
+			q = `UPDATE posts SET subject=$1, body=$2, status=$3, updated_at=now() WHERE slug=$4 RETURNING id`
 			args = []any{subject, body, status, slug}
 		}
 
-		if _, err := pool.Exec(r.Context(), q, args...); err != nil {
+		var postID string
+		if err := pool.QueryRow(r.Context(), q, args...).Scan(&postID); err != nil {
 			http.Error(w, "could not update post", http.StatusInternalServerError)
 			log.Printf("update post: %v", err)
+			return
+		}
+
+		if err := updateGalleryImages(r.Context(), pool, postID, r.MultipartForm.Value); err != nil {
+			http.Error(w, "could not update gallery", http.StatusInternalServerError)
+			log.Printf("update post gallery: %v", err)
+			return
+		}
+
+		if err := uploadGalleryImages(r.Context(), pool, gcsClient, bucketName, slug, postID, r.MultipartForm.File["gallery"]); err != nil {
+			http.Error(w, "gallery upload failed", http.StatusInternalServerError)
+			log.Printf("update post gallery upload: %v", err)
 			return
 		}
 
@@ -382,7 +413,7 @@ func createPostHandler(pool *pgxpool.Pool, gcsClient *storage.Client, bucketName
 			return
 		}
 
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
+		if err := r.ParseMultipartForm(30 << 20); err != nil {
 			http.Error(w, "could not parse form", http.StatusBadRequest)
 			return
 		}
@@ -413,10 +444,16 @@ func createPostHandler(pool *pgxpool.Pool, gcsClient *storage.Client, bucketName
 			}
 		}
 
-		slug, err := insertPost(r.Context(), pool, subject, body, status, imageRef)
+		slug, postID, err := insertPost(r.Context(), pool, subject, body, status, imageRef)
 		if err != nil {
 			http.Error(w, "could not save post", http.StatusInternalServerError)
 			log.Printf("create post: %v", err)
+			return
+		}
+
+		if err := uploadGalleryImages(r.Context(), pool, gcsClient, bucketName, slug, postID, r.MultipartForm.File["gallery"]); err != nil {
+			http.Error(w, "gallery upload failed", http.StatusInternalServerError)
+			log.Printf("create post gallery: %v", err)
 			return
 		}
 
@@ -437,30 +474,120 @@ func uploadImage(ctx context.Context, client *storage.Client, bucket, slug, ext 
 	return "https://storage.googleapis.com/" + bucket + "/" + object, nil
 }
 
-// insertPost inserts a new post and returns its slug. On unique slug collision
-// it retries with a numeric suffix (-2, -3, ...).
-func insertPost(ctx context.Context, pool *pgxpool.Pool, subject, body, status, imageRef string) (string, error) {
+// insertPost inserts a new post and returns its slug and id. On unique slug
+// collision it retries with a numeric suffix (-2, -3, ...).
+func insertPost(ctx context.Context, pool *pgxpool.Pool, subject, body, status, imageRef string) (slug, id string, err error) {
 	base := slugify(subject)
-	slug := base
+	slug = base
 	for i := 2; i <= 100; i++ {
 		var ref *string
 		if imageRef != "" {
 			ref = &imageRef
 		}
-		_, err := pool.Exec(ctx,
-			`INSERT INTO posts (slug, subject, body, status, image_ref) VALUES ($1, $2, $3, $4, $5)`,
-			slug, subject, body, status, ref)
+		err = pool.QueryRow(ctx,
+			`INSERT INTO posts (slug, subject, body, status, image_ref) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+			slug, subject, body, status, ref).Scan(&id)
 		if err == nil {
-			return slug, nil
+			return slug, id, nil
 		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			slug = fmt.Sprintf("%s-%d", base, i)
 			continue
 		}
-		return "", err
+		return "", "", err
 	}
-	return "", fmt.Errorf("could not generate unique slug for %q", subject)
+	return "", "", fmt.Errorf("could not generate unique slug for %q", subject)
+}
+
+type postImage struct {
+	ID       int64
+	ImageRef string
+	Caption  string
+}
+
+func getPostImages(ctx context.Context, pool *pgxpool.Pool, postID string) ([]postImage, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT id, image_ref, caption FROM post_images WHERE post_id = $1 ORDER BY created_at, id`,
+		postID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var images []postImage
+	for rows.Next() {
+		var img postImage
+		var caption *string
+		if err := rows.Scan(&img.ID, &img.ImageRef, &caption); err != nil {
+			return nil, err
+		}
+		img.Caption = strVal(caption)
+		images = append(images, img)
+	}
+	return images, rows.Err()
+}
+
+// uploadGalleryImages uploads each file to GCS and adds it to the post's
+// gallery. Captions aren't set here; they're added afterward via edit.
+func uploadGalleryImages(ctx context.Context, pool *pgxpool.Pool, client *storage.Client, bucket, slug, postID string, files []*multipart.FileHeader) error {
+	for i, header := range files {
+		f, err := header.Open()
+		if err != nil {
+			return fmt.Errorf("open gallery file: %w", err)
+		}
+		ext := filepath.Ext(header.Filename)
+		ref, err := uploadImage(ctx, client, bucket, fmt.Sprintf("%s-gallery-%d", slug, i), ext, f)
+		f.Close()
+		if err != nil {
+			return fmt.Errorf("upload gallery image: %w", err)
+		}
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO post_images (post_id, image_ref) VALUES ($1, $2)`,
+			postID, ref); err != nil {
+			return fmt.Errorf("insert gallery image: %w", err)
+		}
+	}
+	return nil
+}
+
+// updateGalleryImages applies caption edits and deletions submitted from the
+// edit form, where each existing image contributes a "caption_<id>" field and,
+// if its checkbox was ticked, a "delete_image_<id>" field.
+func updateGalleryImages(ctx context.Context, pool *pgxpool.Pool, postID string, values map[string][]string) error {
+	for key := range values {
+		imageID, ok := strings.CutPrefix(key, "delete_image_")
+		if !ok {
+			continue
+		}
+		if _, err := pool.Exec(ctx,
+			`DELETE FROM post_images WHERE id = $1 AND post_id = $2`,
+			imageID, postID); err != nil {
+			return fmt.Errorf("delete gallery image: %w", err)
+		}
+	}
+
+	for key, vals := range values {
+		imageID, ok := strings.CutPrefix(key, "caption_")
+		if !ok {
+			continue
+		}
+		if _, ok := values["delete_image_"+imageID]; ok {
+			continue
+		}
+		caption := strings.TrimSpace(vals[0])
+		var c *string
+		if caption != "" {
+			c = &caption
+		}
+		if _, err := pool.Exec(ctx,
+			`UPDATE post_images SET caption = $1 WHERE id = $2 AND post_id = $3`,
+			c, imageID, postID); err != nil {
+			return fmt.Errorf("update gallery caption: %w", err)
+		}
+	}
+
+	return nil
 }
 
 var (

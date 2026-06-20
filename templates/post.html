@@ -3,5 +3,15 @@
   {{if .ImageRef}}<img src="{{.ImageRef}}" alt="{{.Subject}}">{{end}}
   <h1>{{.Subject}}</h1>
   <div class="body">{{.Body}}</div>
+  {{if .Gallery}}
+  <div class="gallery">
+    {{range .Gallery}}
+    <figure>
+      <img src="{{.ImageRef}}" alt="{{if .Caption}}{{.Caption}}{{else}}{{$.Subject}}{{end}}">
+      {{if .Caption}}<figcaption>{{.Caption}}</figcaption>{{end}}
+    </figure>
+    {{end}}
+  </div>
+  {{end}}
 </article>
 {{end}}
