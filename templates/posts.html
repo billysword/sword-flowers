@@ -1,10 +1,12 @@
 {{define "content"}}
 <h1>Posts</h1>
-<ul>
+<div class="post-list">
   {{range .Posts}}
-  <li><a href="/posts/{{.Slug}}">{{.Subject}}</a></li>
+  <article class="post-card">
+    <a href="/posts/{{.Slug}}">{{.Subject}}</a>
+  </article>
   {{else}}
-  <li>No posts yet.</li>
+  <p>No posts yet.</p>
   {{end}}
-</ul>
+</div>
 {{end}}

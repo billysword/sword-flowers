@@ -1,34 +1,36 @@
 {{define "content"}}
 <div class="admin-header">
   <h1>Posts</h1>
-  <div style="display:flex;gap:1rem">
+  <div>
     <a href="/admin/posts/new">New post</a>
     <a href="/auth/logout">Logout</a>
   </div>
 </div>
-<table>
-  <thead>
-    <tr>
-      <th>Subject</th>
-      <th>Status</th>
-      <th>Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-    {{range .Posts}}
-    <tr>
-      <td>{{.Subject}}</td>
-      <td><span class="status status--{{.Status}}">{{.Status}}</span></td>
-      <td class="actions">
-        <a href="/admin/posts/{{.Slug}}/edit">Edit</a>
-        <form method="POST" action="/admin/posts/{{.Slug}}/delete">
-          <button type="submit">Delete</button>
-        </form>
-      </td>
-    </tr>
-    {{else}}
-    <tr><td colspan="3">No posts yet.</td></tr>
-    {{end}}
-  </tbody>
-</table>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Subject</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Posts}}
+      <tr>
+        <td>{{.Subject}}</td>
+        <td><span class="status status--{{.Status}}">{{.Status}}</span></td>
+        <td class="actions">
+          <a href="/admin/posts/{{.Slug}}/edit">Edit</a>
+          <form method="POST" action="/admin/posts/{{.Slug}}/delete">
+            <button type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="3">No posts yet.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
 {{end}}

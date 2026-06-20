@@ -1,0 +1,341 @@
+/* ── Reset ─────────────────────────────────────────────────────────
+   box-sizing: border-box makes width/height include padding and
+   border — without it, padding grows an element beyond its set size.
+─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Design tokens ──────────────────────────────────────────────────
+   CSS custom properties (variables). Change a value here and every
+   element using it updates. :root targets <html>, making them global.
+─────────────────────────────────────────────────────────────────── */
+:root {
+  --bg:          #fafaf8;   /* warm off-white page background */
+  --surface:     #ffffff;   /* cards, inputs, table rows */
+  --border:      #e4e4dc;   /* dividers, input outlines */
+  --text:        #1a1a1a;   /* primary text */
+  --text-muted:  #6b6b6b;   /* secondary labels, table headers */
+  --accent:      #2a5db0;   /* links and primary actions */
+  --accent-dark: #1e4a8f;   /* hover state for accent */
+  --danger:      #c0392b;   /* delete button */
+
+  /* Two font families: serif for content, sans for UI chrome.
+     The contrast makes it clear what's readable prose vs. interface. */
+  --font-serif: Georgia, "Times New Roman", serif;
+  --font-ui:    system-ui, -apple-system, sans-serif;
+
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1.125rem;
+  --text-lg:   1.25rem;
+  --text-2xl:  2rem;
+
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-6:  1.5rem;
+  --space-8:  2rem;
+  --space-12: 3rem;
+
+  --radius:      8px;
+  --radius-sm:   4px;
+  --radius-pill: 999px;
+
+  /* Layered shadows: first layer is ambient (soft), second is directional.
+     Low opacity keeps them subtle — real shadows are almost never black. */
+  --shadow-sm:    0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-hover: 0 8px 20px rgba(0,0,0,0.09), 0 3px 6px rgba(0,0,0,0.05);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────
+   These cascade to all children unless explicitly overridden.
+─────────────────────────────────────────────────────────────────── */
+body {
+  font-family: var(--font-serif);
+  font-size: var(--text-base);
+  line-height: 1.75;
+  color: var(--text);
+  background: var(--bg);
+}
+
+a { color: var(--accent); }
+a:visited { color: var(--accent); }
+a:hover { color: var(--accent-dark); }
+
+/* :focus-visible shows the ring only for keyboard nav, not mouse clicks. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────
+   White surface separated from the warm-grey page by a border.
+─────────────────────────────────────────────────────────────────── */
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-6) var(--space-8);
+}
+
+header a {
+  font-family: var(--font-ui);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+
+header a:hover { color: var(--accent); }
+
+/* ── Page container ─────────────────────────────────────────────────
+   max-width keeps prose line length readable (~70ch).
+   auto margins center it horizontally.
+─────────────────────────────────────────────────────────────────── */
+main {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-8);
+}
+
+h1 {
+  font-size: var(--text-2xl);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-8);
+}
+
+/* ── Post list (cards) ──────────────────────────────────────────────
+   flex column + gap replaces margin on individual items.
+   Each card is a white surface lifted off the background.
+   transition animates the shadow and position on hover.
+─────────────────────────────────────────────────────────────────── */
+.post-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.post-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.post-card:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px); /* subtle lift effect */
+}
+
+.post-card a {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  text-decoration: none;
+  color: var(--text);
+}
+
+.post-card a:hover { color: var(--accent); }
+
+/* ── Post detail ────────────────────────────────────────────────────
+   <article> is the semantic element for self-contained content.
+─────────────────────────────────────────────────────────────────── */
+article img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius);
+  margin-bottom: var(--space-8);
+}
+
+article h1 { margin-bottom: var(--space-4); }
+
+.body { margin-top: var(--space-6); }
+.body p { margin-bottom: 1.25rem; }
+.body h2, .body h3 {
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-4);
+  line-height: 1.3;
+}
+
+/* ── Forms ──────────────────────────────────────────────────────────
+   .field wraps a label + input pair. flex-direction: column stacks
+   them with a gap rather than using margin.
+─────────────────────────────────────────────────────────────────── */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+/* Uppercase, tracked, small labels read clearly as "form labels"
+   without competing with body text. */
+.field > label,
+.field fieldset legend {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-serif);
+  font-size: var(--text-base);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+/* Inset ring on focus rather than browser default outline. */
+input[type="text"]:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(42, 93, 176, 0.15);
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+}
+
+fieldset legend { padding: 0 var(--space-2); }
+
+fieldset label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-right: var(--space-6);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+button[type="submit"] {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: var(--space-3) var(--space-6);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button[type="submit"]:hover { background: var(--accent-dark); }
+
+.preview {
+  max-height: 200px;
+  width: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+/* ── Admin chrome ───────────────────────────────────────────────────
+   Flex row: h1 left, action links right. align-items: baseline
+   aligns them on their text baselines rather than their tops.
+─────────────────────────────────────────────────────────────────── */
+.admin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--space-6);
+}
+
+.admin-header h1 { margin-bottom: 0; }
+
+.admin-header div {
+  display: flex;
+  gap: var(--space-4);
+}
+
+/* ── Table ──────────────────────────────────────────────────────────
+   .table-wrap clips the table into the border-radius.
+   border-radius on a table with border-collapse doesn't work alone —
+   the wrapper div with overflow: hidden is the standard workaround.
+─────────────────────────────────────────────────────────────────── */
+.table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+table { width: 100%; border-collapse: collapse; }
+
+th, td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+tbody tr:last-child td { border-bottom: none; }
+
+th {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg);
+}
+
+tbody tr:hover { background: #f5f5f2; }
+
+/* ── Status badges ──────────────────────────────────────────────────
+   border-radius: 999px creates a pill regardless of content width.
+─────────────────────────────────────────────────────────────────── */
+.status {
+  display: inline-block;
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+}
+
+.status--published { background: #d4f1e4; color: #0d6832; }
+.status--draft     { background: #fef3c7; color: #92400e; }
+
+/* ── Table actions ──────────────────────────────────────────────────
+   Delete button resets all button styles so it reads like a danger link.
+─────────────────────────────────────────────────────────────────── */
+.actions {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.actions form { margin: 0; }
+
+.actions a {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+
+.actions button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--danger);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+
+.actions button:hover { text-decoration: underline; }

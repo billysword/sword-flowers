@@ -118,6 +118,10 @@ func main() {
 		return requireAdmin(sessionSecret, h)
 	}
 
+	// Serve files from the static/ directory at /static/*.
+	// StripPrefix removes the /static/ prefix before looking up the file on disk.
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "sword flowers")
 	})
