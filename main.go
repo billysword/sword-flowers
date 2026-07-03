@@ -29,6 +29,7 @@ type templates struct {
 	newPost   *template.Template
 	adminList *template.Template
 	editPost  *template.Template
+	chat      *template.Template
 }
 
 func loadTemplates() (*templates, error) {
@@ -52,7 +53,12 @@ func loadTemplates() (*templates, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &templates{list: list, detail: detail, newPost: newPost, adminList: adminList, editPost: editPost}, nil
+	// chat.html is a standalone page — no base.html.
+	chat, err := template.ParseFiles("templates/chat.html")
+	if err != nil {
+		return nil, err
+	}
+	return &templates{list: list, detail: detail, newPost: newPost, adminList: adminList, editPost: editPost, chat: chat}, nil
 }
 
 func main() {
@@ -89,6 +95,11 @@ func main() {
 		log.Fatal("BASE_URL is required")
 	}
 
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if anthropicKey == "" {
+		log.Fatal("ANTHROPIC_API_KEY is required")
+	}
+
 	oauthCfg := newOAuthConfig(googleClientID, googleClientSecret, baseURL)
 
 	pool, err := db.Connect(ctx, databaseURL)
@@ -123,9 +134,9 @@ func main() {
 	// StripPrefix removes the /static/ prefix before looking up the file on disk.
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "sword flowers")
-	})
+	anthropicClient := newAnthropicClient(anthropicKey)
+	http.HandleFunc("/", chatPageHandler(tmpl))
+	http.HandleFunc("/chat", chatHandler(anthropicClient))
 	http.HandleFunc("/posts", listPostsHandler(pool, tmpl))
 	http.HandleFunc("/posts/{slug}", getPostHandler(pool, tmpl))
 

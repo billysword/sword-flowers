@@ -7,6 +7,7 @@
 *.test
 *.out
 server
+sword-flowers
 
 # env
 .env

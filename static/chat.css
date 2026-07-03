@@ -1,0 +1,117 @@
+/* Terminal chat theme — loaded only by templates/chat.html.
+   Kept separate from style.css because that file sets a warm off-white body
+   background and serif fonts that would conflict with the dark terminal aesthetic. */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:     #0d1117;
+  --green:  #39ff14;
+  --dim:    #c0f0c0;
+  --muted:  #4a5568;
+  --border: #1f2937;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--green);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Message list scrolls independently and fills remaining viewport height. */
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* pre-wrap preserves newlines in multi-line LLM responses. */
+.msg {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.msg-user {
+  color: var(--green);
+}
+.msg-user::before {
+  content: "> ";
+  color: var(--muted);
+}
+
+.msg-assistant {
+  color: var(--dim);
+}
+.msg-assistant::before {
+  content: "$ ";
+  color: var(--muted);
+}
+
+/* Blinking block cursor shown while Claude is generating. */
+.cursor {
+  display: inline-block;
+  width: 0.55ch;
+  height: 1em;
+  background: var(--green);
+  vertical-align: text-bottom;
+  animation: blink 1s step-start infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Input bar is pinned to the bottom; flex-shrink: 0 prevents it
+   from collapsing when the message list grows. */
+#input-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.5rem;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#input-bar .prompt-char {
+  color: var(--muted);
+  user-select: none;
+}
+
+#msg-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--green);
+  font-family: inherit;
+  font-size: inherit;
+  caret-color: var(--green);
+}
+
+#send-btn {
+  background: transparent;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: inherit;
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s;
+}
+#send-btn:hover:not(:disabled) {
+  color: var(--green);
+  border-color: var(--green);
+}
+#send-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
