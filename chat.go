@@ -17,6 +17,8 @@ import (
 const chatSystemPrompt = "You are a helpful research assistant in a retro terminal interface. " +
 	"You have access to web search — use it proactively when the user asks about " +
 	"current events, news, prices, or anything requiring up-to-date information. " +
+	"When a dedicated widget tool exists for the data the user is asking about, call it " +
+	"instead of describing the data in text. The widget will display the data directly. " +
 	"Be informative but concise. Format responses as plain text suitable for a terminal display."
 
 type sessionData struct {
@@ -117,9 +119,12 @@ func chatHandler(client anthropic.Client) http.HandlerFunc {
 				System: []anthropic.TextBlockParam{
 					{Text: chatSystemPrompt},
 				},
-				Tools: []anthropic.ToolUnionParam{
-					{OfWebSearchTool20250305: &anthropic.WebSearchTool20250305Param{}},
-				},
+				Tools: append(
+					[]anthropic.ToolUnionParam{
+						{OfWebSearchTool20250305: &anthropic.WebSearchTool20250305Param{}},
+					},
+					widgetTools()...,
+				),
 				Messages: history,
 			})
 
@@ -146,18 +151,49 @@ func chatHandler(client anthropic.Client) http.HandlerFunc {
 			}
 
 			history = append(history, msg.ToParam())
-			if msg.StopReason != anthropic.StopReasonPauseTurn {
-				break
+
+			if msg.StopReason == anthropic.StopReasonPauseTurn {
+				// Server-side tool (web_search) in progress; continue the loop.
+				continue
 			}
+
+			if msg.StopReason == anthropic.StopReasonToolUse {
+				// Client-side tool (widget): render and stream each tool_use block,
+				// then send tool_results so Claude can continue.
+				for _, block := range msg.Content {
+					toolUse, ok := block.AsAny().(anthropic.ToolUseBlock)
+					if !ok {
+						continue
+					}
+					widget, found := widgetRegistry[toolUse.Name]
+					if found {
+						html, err := widget.Render(r.Context(), toolUse.Input)
+						if err != nil {
+							log.Printf("widget render %s: %v", toolUse.Name, err)
+							html = `<div class="msg-widget">[widget error]</div>`
+						}
+						encoded, _ := json.Marshal(string(html))
+						fmt.Fprintf(w, "event: widget\ndata: %s\n\n", encoded)
+						flusher.Flush()
+					}
+					history = append(history, anthropic.NewUserMessage(
+						anthropic.NewToolResultBlock(toolUse.ID, "displayed", false),
+					))
+				}
+				continue
+			}
+
+			// end_turn, max_tokens, stop_sequence, refusal, etc.
+			break
 		}
 
-		// Save completed assistant turn to session.
+		// Always persist the final history so tool exchanges survive across turns.
+		sess.mu.Lock()
+		sess.history = history
 		if reply := fullReply.String(); reply != "" {
-			sess.mu.Lock()
-			sess.history = history
 			sess.display = append(sess.display, chatMsg{Role: "assistant", Content: reply})
-			sess.mu.Unlock()
 		}
+		sess.mu.Unlock()
 
 		fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()

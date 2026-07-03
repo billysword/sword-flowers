@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 Operating instructions for Claude on this project. Read this fully before doing anything.
 
 ## What we're building
@@ -19,7 +21,7 @@ for speed.**
 
 - **Backend:** Go. Standard library first.
 - **Frontend:** HTMX over server-rendered HTML, using `html/template`. `htmx.min.js`
-  is vendored into the repo — no npm, no bundler, no front-end build step.
+  will be vendored into `static/` when first needed — no npm, no bundler, no front-end build step.
 - **Database:** Neon (serverless Postgres), accessed via `pgx` with hand-written SQL.
   No ORM (no GORM, ent, etc.) and no `sqlc` unless explicitly added later.
 - **Migrations:** plain versioned `.sql` files. Runner chosen in CP1.
@@ -112,6 +114,7 @@ next begins.
 - **CP5** — Image upload to GCS.
 - **CP6** — Edit / delete.
 - **CP7** — Minimal auth gate on the admin surface.
+- **CP8** — Terminal chat homepage at `/`: dark green-on-black UI, Claude Sonnet streaming via `POST /chat` as `text/event-stream`, web search tool enabled, in-memory sessions.
 
 ## Technical debt log
 
@@ -134,8 +137,18 @@ Non-trivial decisions (stack choices, schema, storage model) get a short ADR in
 `/docs/decisions/`. Don't re-litigate logged decisions; if one needs revisiting,
 propose a new ADR.
 
+## Architecture notes
+
+**Two surfaces, one binary.** The admin surface (`/admin/*`) is protected by `requireAdmin` middleware (Google OAuth session cookie). The public surface (`/posts`, `/posts/{slug}`) and the chat homepage (`/`) are unauthenticated. All routes are registered in `main()` using stdlib `net/http`.
+
+**Chat surface** (`chat.go`): in-memory sessions keyed by UUID cookie (`chat_session`) in a package-level `sync.Map`. `POST /chat` streams Claude's response directly as `text/event-stream` — the client reads it via `fetch + ReadableStream`, not `EventSource`. `static/chat.css` is intentionally separate from `static/style.css` (conflicting warm/dark themes).
+
+**Templates**: `base.html` + named `{{block "content"}}` for CMS pages. `chat.html` is a standalone `<!DOCTYPE html>` — it does not extend `base.html`.
+
 ## Commands
 
-- **Deploy:** `gcloud run deploy --source .` (or via Dockerfile)
+- **Build:** `go build .` (verifies compilation without running)
+- **Vet:** `go vet ./...`
 - **Local dev:** `./dev.sh` (loads `.env` then runs `go run .`)
 - **Migrate:** `migrate -database "$DATABASE_URL" -path migrations up`
+- **Deploy:** `gcloud run deploy --source .` (or via Dockerfile)

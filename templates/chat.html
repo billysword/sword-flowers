@@ -49,17 +49,24 @@
     userDiv.className = 'msg msg-user';
     userDiv.textContent = text;
     messagesEl.appendChild(userDiv);
-
-    // Placeholder assistant bubble with a blinking cursor.
-    const aiDiv    = document.createElement('div');
-    aiDiv.className = 'msg msg-assistant';
-    const cursor   = document.createElement('span');
-    cursor.className = 'cursor';
-    aiDiv.appendChild(cursor);
-    messagesEl.appendChild(aiDiv);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
-    let accum = '';
+    // aiDiv and cursor are created lazily on the first text token.
+    // Widget responses inject their own elements and may produce no text at all.
+    let aiDiv  = null;
+    let accum  = '';
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+
+    function getOrCreateAiDiv() {
+      if (!aiDiv) {
+        aiDiv = document.createElement('div');
+        aiDiv.className = 'msg msg-assistant';
+        aiDiv.appendChild(cursor);
+        messagesEl.appendChild(aiDiv);
+      }
+      return aiDiv;
+    }
 
     try {
       const resp = await fetch('/chat', {
@@ -69,7 +76,7 @@
       });
 
       if (!resp.ok) {
-        aiDiv.textContent = '[error ' + resp.status + ']';
+        getOrCreateAiDiv().textContent = '[error ' + resp.status + ']';
         return;
       }
 
@@ -88,28 +95,39 @@
         buf = frames.pop(); // keep trailing incomplete frame
 
         for (const frame of frames) {
-          if (!frame.startsWith('data: ')) continue;
-          const payload = frame.slice(6).trim();
-          if (payload === '[DONE]') { reader.cancel(); break; }
+          // Parse event type and data line from the frame.
+          let eventType = 'text';
+          let dataLine  = null;
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event: ')) { eventType = line.slice(7).trim(); continue; }
+            if (line.startsWith('data: '))  { dataLine  = line.slice(6).trim(); }
+          }
+          if (!dataLine) continue;
+          if (dataLine === '[DONE]') { reader.cancel(); break; }
 
           try {
-            // Each payload is a JSON-encoded string so that embedded newlines
-            // in Claude's output don't break SSE framing on the server side.
-            const token = JSON.parse(payload);
-            accum += token;
-            // Set textContent (not innerHTML) to avoid XSS from LLM output,
-            // then re-attach cursor so it stays at the trailing position.
-            aiDiv.textContent = accum;
-            aiDiv.appendChild(cursor);
+            if (eventType === 'widget') {
+              // Widget HTML is server-generated; innerHTML is safe here.
+              const widgetEl = document.createElement('div');
+              widgetEl.innerHTML = JSON.parse(dataLine);
+              messagesEl.appendChild(widgetEl);
+            } else {
+              // Text token — JSON-encoded string to survive embedded newlines.
+              const token = JSON.parse(dataLine);
+              accum += token;
+              // textContent prevents XSS from LLM output; re-attach cursor after update.
+              getOrCreateAiDiv().textContent = accum;
+              aiDiv.appendChild(cursor);
+            }
             messagesEl.scrollTop = messagesEl.scrollHeight;
           } catch (_) { /* ignore malformed frame */ }
         }
       }
     } catch (err) {
-      aiDiv.textContent = '[network error]';
+      getOrCreateAiDiv().textContent = '[network error]';
     } finally {
       cursor.remove();
-      if (accum) aiDiv.textContent = accum;
+      if (aiDiv && accum) aiDiv.textContent = accum;
       setEnabled(true);
     }
   }

@@ -115,3 +115,26 @@ body {
   opacity: 0.35;
   cursor: default;
 }
+
+/* Widget snapshots — inline data modules rendered by the server */
+.msg-widget {
+  margin: 0.4rem 0;
+  padding: 0.5rem 0;
+}
+
+.widget-btc {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.widget-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.widget-price {
+  font-size: 1.4rem;
+  color: var(--green);
+}

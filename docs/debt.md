@@ -43,6 +43,16 @@ need to survive restarts, the fix is to persist `sessionData.history` to Postgre
 
 ---
 
+## Widget HTML is an inline Go string
+
+`widget_bitcoin.go` builds the HTML fragment as a `fmt.Sprintf` string. When a
+second widget is added, move to `templates/widgets/` with `html/template` files
+so each widget can own its own markup cleanly.
+
+**Deferred because:** One widget doesn't justify the template plumbing overhead yet.
+
+---
+
 ## No error pages
 
 All errors are returned via `http.Error(w, "...", statusCode)`, which renders as
