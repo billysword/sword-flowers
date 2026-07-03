@@ -113,6 +113,21 @@ next begins.
 - **CP6** — Edit / delete.
 - **CP7** — Minimal auth gate on the admin surface.
 
+## Technical debt log
+
+`/docs/debt.md` tracks cleanup work that is consciously deferred — things noticed
+during implementation that violate single-responsibility, have grown beyond their
+original scope, or are otherwise worth fixing but not right now.
+
+**Rules:**
+- When you notice something that belongs in the debt log, add it there before
+  finishing the task. Do not fix it unless asked.
+- Each entry should name the file/area, describe the problem briefly, and note why
+  it was deferred (not wrong, just not now).
+- When debt is paid off, remove the entry.
+- Do not let the list grow silently. If a new task would make an existing debt item
+  worse, flag it before proceeding.
+
 ## Decision log
 
 Non-trivial decisions (stack choices, schema, storage model) get a short ADR in
