@@ -122,19 +122,25 @@ body {
   padding: 0.5rem 0;
 }
 
-.widget-btc {
+.widget-stock {
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
 }
 
-.widget-label {
+.widget-symbol {
   font-size: 0.75rem;
   color: var(--muted);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
 .widget-price {
   font-size: 1.4rem;
   color: var(--green);
+}
+
+.widget-spark {
+  font-size: 1rem;
+  color: var(--dim);
+  letter-spacing: 0.02em;
 }

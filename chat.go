@@ -107,13 +107,17 @@ func chatHandler(client anthropic.Client) http.HandlerFunc {
 
 		var fullReply strings.Builder
 
+		// routeToWidget runs once per user message. widgetTool is consumed on
+		// the first Claude call only; subsequent loop iterations (tool-result
+		// continuations) must NOT re-force the tool or we'd loop forever.
+		widgetTool, forceWidget := routeToWidget(userMsg)
+
 		// web_search_20250305 is a server-side tool: Anthropic executes searches
 		// transparently. When the model decides to search, the API returns
 		// stop_reason "pause_turn". We re-call with the accumulated history until
 		// the model finishes (stop_reason "end_turn").
 		for {
-			var msg anthropic.Message
-			stream := client.Messages.NewStreaming(r.Context(), anthropic.MessageNewParams{
+			params := anthropic.MessageNewParams{
 				Model:     anthropic.ModelClaudeSonnet4_6,
 				MaxTokens: 8192,
 				System: []anthropic.TextBlockParam{
@@ -126,7 +130,14 @@ func chatHandler(client anthropic.Client) http.HandlerFunc {
 					widgetTools()...,
 				),
 				Messages: history,
-			})
+			}
+			if forceWidget {
+				params.ToolChoice = anthropic.ToolChoiceParamOfTool(widgetTool)
+				forceWidget = false // consumed; don't re-force on tool-result continuations
+			}
+
+			var msg anthropic.Message
+			stream := client.Messages.NewStreaming(r.Context(), params)
 
 			for stream.Next() {
 				event := stream.Current()
